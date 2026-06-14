@@ -1,0 +1,9 @@
+validacion_id,lote_id,regla,resultado,severidad,mensaje,fecha_validacion
+VAL-001,LOT-001,existencia_arbol,Aprobado,Baja,El árbol asociado al lote existe en el censo forestal,2026-06-13
+VAL-002,LOT-001,trazabilidad_troza,Aprobado,Baja,La troza está asociada a una operación de tala y despacho,2026-06-13
+VAL-003,LOT-001,gtf_asociada,Aprobado,Baja,El lote tiene una GTF asociada,2026-06-13
+VAL-004,LOT-001,volumen_disponible,Aprobado,Baja,El volumen del lote se encuentra dentro del saldo disponible,2026-06-13
+VAL-005,LOT-002,existencia_arbol,Aprobado,Baja,El árbol asociado al lote existe en el censo forestal,2026-06-13
+VAL-006,LOT-002,trazabilidad_troza,Aprobado,Baja,La troza está asociada a una operación de tala y despacho,2026-06-13
+VAL-007,LOT-002,gtf_asociada,Aprobado,Baja,El lote tiene una GTF asociada,2026-06-13
+VAL-008,LOT-002,volumen_disponible,Rechazado,Alta,El lote pertenece a una parcela con saldo disponible negativo,2026-06-13

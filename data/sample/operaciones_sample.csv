@@ -1,0 +1,7 @@
+operacion_id,tipo_operacion,arbol_id,troza_id,parcela_corta,especie,volumen,numero_gtf,fecha
+OP-001,Tala,1170,,PC1,Shihuahuaco,8.50,,2025-09-01
+OP-002,Trozado,1170,1170-A,PC1,Shihuahuaco,4.20,,2025-09-02
+OP-003,Despacho,1170,1170-A,PC1,Shihuahuaco,4.20,017-0001271,2025-09-03
+OP-004,Tala,3403,,PC3,Shihuahuaco,12.30,,2025-09-04
+OP-005,Trozado,3403,3403-A,PC3,Shihuahuaco,12.00,,2025-09-05
+OP-006,Despacho,3403,3403-A,PC3,Shihuahuaco,12.00,017-0001281,2025-09-06

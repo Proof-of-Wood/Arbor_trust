@@ -1,0 +1,3 @@
+lote_id,numero_gtf,titulo_habilitante_id,parcela_corta,especie,volumen_total,estado_validacion,mensaje
+LOT-001,017-0001271,TH-001,PC1,Shihuahuaco,4.20,Verde,Lote con trazabilidad y saldo disponible
+LOT-002,017-0001281,TH-001,PC3,Shihuahuaco,12.00,Rojo,Lote observado por saldo negativo

@@ -1,0 +1,4 @@
+balance_id,titulo_habilitante_id,parcela_corta,especie,volumen_autorizado,volumen_movilizado,saldo_disponible,estado_saldo
+BE-001,TH-001,PC1,Shihuahuaco,100.00,60.00,40.00,Positivo
+BE-002,TH-001,PC3,Shihuahuaco,100.00,110.00,-10.00,Negativo
+BE-003,TH-001,PC1,Cumala,50.00,20.00,30.00,Positivo

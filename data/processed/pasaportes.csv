@@ -1,0 +1,3 @@
+pasaporte_id,lote_id,numero_gtf,estado,qr_url,hash_integridad,fecha_generacion
+PASS-001,LOT-001,017-0001271,Activo,/passport/LOT-001,demo_hash_lot_001,2026-06-13
+PASS-002,LOT-002,017-0001281,Bloqueado,/passport/LOT-002,demo_hash_lot_002,2026-06-13
