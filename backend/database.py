@@ -1,12 +1,3 @@
-"""
-ArborTrust - database.py
-========================
-Gestión de la base de datos SQLite y carga inicial de datos CSV.
-
-Crea las tablas relacionales que reemplazan la dispersión de CSVs,
-manteniendo los CSVs como fuente de verdad para importación.
-"""
-
 import sqlite3
 import pandas as pd
 from pathlib import Path
