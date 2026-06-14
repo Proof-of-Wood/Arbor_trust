@@ -60,12 +60,12 @@ async def cargar_archivo(
     
     # Validación de formato y content-type
     filename = file.filename or ""
-    if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Formato de archivo no soportado. Debe ser .csv")
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Formato de archivo no soportado. Debe ser .xlsx")
         
-    expected_mimetypes = ["text/csv", "application/vnd.ms-excel", "text/plain"]
+    expected_mimetypes = ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
     if file.content_type not in expected_mimetypes:
-        raise HTTPException(status_code=400, detail=f"Content-Type inválido. Debe ser uno de {expected_mimetypes}")
+        raise HTTPException(status_code=400, detail=f"Content-Type inválido. Debe ser {expected_mimetypes[0]}")
 
     # 1. Leer contenido para calcular hash SHA-256
     content = await file.read()
@@ -102,7 +102,7 @@ async def cargar_archivo(
     # 4. Guardar archivo temporalmente
     temp_dir = Path("./temp_uploads")
     temp_dir.mkdir(exist_ok=True)
-    temp_file_path = temp_dir / f"{job_id}.csv"
+    temp_file_path = temp_dir / f"{job_id}.xlsx"
     
     with open(temp_file_path, "wb") as f:
         f.write(content)

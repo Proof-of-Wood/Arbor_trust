@@ -16,7 +16,7 @@ ROOT_DIR = BACKEND_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 # Importar funciones de base de datos para resetearla
-from database import get_connection, init_db, seed_from_csv
+from database import get_connection, init_db, seed_from_excel
 
 PORT = 8099
 BASE_URL = f"http://127.0.0.1:{PORT}"
@@ -33,8 +33,8 @@ def reset_database():
             
     # Inicializar y sembrar
     init_db()
-    seed_from_csv()
-    print("[TEST] Base de datos inicializada y sembrada desde CSV.")
+    seed_from_excel()
+    print("[TEST] Base de datos inicializada y sembrada desde Excel.")
 
 def preinsert_test_trees():
     """Pre-inserta los árboles necesarios en la tabla 'arboles' para que las pruebas pasen las FKs y Constraints."""
@@ -80,14 +80,14 @@ def preinsert_test_trees():
     finally:
         conn.close()
 
-def generate_csv_file(path: str, rows: list):
-    """Genera un archivo CSV con las filas especificadas."""
+def generate_excel_file(path: str, rows: list):
+    """Genera un archivo Excel con las filas especificadas."""
     df = pd.DataFrame(rows)
-    df.to_csv(path, index=False, encoding="utf-8")
+    df.to_excel(path, index=False, engine='openpyxl')
 
 async def main():
     print("=" * 60)
-    print("INICIANDO PRUEBAS DE CONCURRENCIA E IDEMPOTENCIA EN CSV")
+    print("INICIANDO PRUEBAS DE CONCURRENCIA E IDEMPOTENCIA EN EXCEL (XLSX)")
     print("=" * 60)
     
     # 1. Resetear base de datos y pre-insertar árboles
@@ -126,7 +126,7 @@ async def main():
         # CASO A: PETICIONES SIMULTÁNEAS (10 Cargas Concurrentes)
         # ───────────────────────────────────────────────────────────
         print("\n" + "-" * 50)
-        print("EJECUTANDO CASO A: 10 Cargas Simultáneas de Archivos CSV Diferentes")
+        print("EJECUTANDO CASO A: 10 Cargas Simultáneas de Archivos Excel Diferentes")
         print("-" * 50)
         
         # Generar 10 archivos de operaciones diferentes
@@ -147,16 +147,16 @@ async def main():
                 for j in range(5) # 5 operaciones por archivo
             ]
             
-            filepath = test_files_dir / f"test_a_{i}.csv"
-            generate_csv_file(str(filepath), rows)
+            filepath = test_files_dir / f"test_a_{i}.xlsx"
+            generate_excel_file(str(filepath), rows)
             filenames.append(filepath)
             
         # Lanzar las 10 peticiones de subida al mismo tiempo
         start_time = time.time()
         async def upload_file(client, filepath):
             with open(filepath, "rb") as f:
-                # Enviar con el MIME type correcto para CSV
-                files = {"file": (filepath.name, f, "text/csv")}
+                # Enviar con el MIME type correcto para Excel
+                files = {"file": (filepath.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
                 return await client.post(
                     f"{BASE_URL}/api/v1/trazabilidad/cargar-archivo?tipo_archivo=operaciones",
                     files=files,
@@ -204,11 +204,11 @@ async def main():
         # CASO B: INTENTO DE DUPLICIDAD (Idempotencia)
         # ───────────────────────────────────────────────────────────
         print("\n" + "-" * 50)
-        print("EJECUTANDO CASO B: Intento de Duplicidad de Archivo CSV Idéntico")
+        print("EJECUTANDO CASO B: Intento de Duplicidad de Archivo Excel Idéntico")
         print("-" * 50)
         
         # Generar un archivo único
-        filepath_b = test_files_dir / "test_b.csv"
+        filepath_b = test_files_dir / "test_b.xlsx"
         rows_b = [
             {
                 "operacion_id": "OP-B-1",
@@ -222,7 +222,7 @@ async def main():
                 "fecha": "2026-06-14"
             }
         ]
-        generate_csv_file(str(filepath_b), rows_b)
+        generate_excel_file(str(filepath_b), rows_b)
         
         # Subir concurrentemente el mismo archivo dos veces
         async with httpx.AsyncClient() as client:
@@ -272,8 +272,8 @@ async def main():
                 "fecha": "2026-06-14"
             })
             
-        filepath_c = test_files_dir / "test_c.csv"
-        generate_csv_file(str(filepath_c), rows_c)
+        filepath_c = test_files_dir / "test_c.xlsx"
+        generate_excel_file(str(filepath_c), rows_c)
         
         # Cargar archivo
         async with httpx.AsyncClient() as client:
@@ -358,10 +358,10 @@ async def main():
             for i in range(5) # Total volumen = 5.0
         ]
         
-        filepath_d1 = test_files_dir / "test_d1.csv"
-        filepath_d2 = test_files_dir / "test_d2.csv"
-        generate_csv_file(str(filepath_d1), rows_d1)
-        generate_csv_file(str(filepath_d2), rows_d2)
+        filepath_d1 = test_files_dir / "test_d1.xlsx"
+        filepath_d2 = test_files_dir / "test_d2.xlsx"
+        generate_excel_file(str(filepath_d1), rows_d1)
+        generate_excel_file(str(filepath_d2), rows_d2)
         
         # Subir los dos archivos concurrentemente
         async with httpx.AsyncClient() as client:
@@ -405,7 +405,7 @@ async def main():
             conn.close()
 
         print("\n" + "=" * 60)
-        print("¡TODAS LAS PRUEBAS DE CONCURRENCIA E IDEMPOTENCIA EN CSV PASARON CON ÉXITO!")
+        print("¡TODAS LAS PRUEBAS DE CONCURRENCIA E IDEMPOTENCIA EN EXCEL (XLSX) PASARON CON ÉXITO!")
         print("=" * 60)
         
     finally:
@@ -421,6 +421,10 @@ async def main():
         if test_files_dir.exists():
             shutil.rmtree(test_files_dir)
             print("[TEST] Carpeta temporal de archivos de prueba eliminada.")
+
+def test_concurrency_all_cases():
+    """Wrapper para ejecutar las pruebas de concurrencia e idempotencia bajo pytest."""
+    asyncio.run(main())
 
 if __name__ == "__main__":
     asyncio.run(main())

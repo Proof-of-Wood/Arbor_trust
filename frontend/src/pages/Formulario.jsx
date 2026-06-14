@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Save, CheckCircle, ShieldAlert, AlertTriangle, Info, TreePine, Truck, Factory, Scissors, MapPin, Leaf, Lock, ShieldCheck, Globe, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const SPECIES = ['Shihuahuaco', 'Cumala', 'Cedro', 'Tornillo', 'Lupuna', 'Caoba'];
 
@@ -33,22 +34,7 @@ const traducirError = (errStr) => {
   return errUpper;
 };
 
-const parseCSV = (text) => {
-  const lines = text.split('\n');
-  if (lines.length === 0) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
-  const records = [];
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const values = lines[i].split(',').map(v => v.trim().replace(/['"]/g, ''));
-    const record = {};
-    headers.forEach((h, idx) => {
-      record[h] = values[idx] || '';
-    });
-    records.push(record);
-  }
-  return records;
-};
+// parseCSV removed since we migrated to Excel (.xlsx) formats using SheetJS (xlsx)
 
 export default function Formulario() {
   // Estado para Tabs
@@ -168,6 +154,7 @@ export default function Formulario() {
 
   const detectType = (filename) => {
     const name = filename.toLowerCase();
+    if (!name.endsWith('.xlsx')) return 'no_detectado';
     if (name.includes('censo')) return 'censo';
     if (name.includes('operaciones') || name.includes('libro')) return 'operaciones';
     if (name.includes('gtf') || name.includes('guia') || name.includes('lote')) return 'lotes';
@@ -211,18 +198,34 @@ export default function Formulario() {
       const file = f.fileObject;
       const tipo = f.tipo;
       try {
-        const firstLine = await new Promise((resolve, reject) => {
+        const headers = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (event) => {
-            const text = event.target.result;
-            const line = text.split('\n')[0].trim();
-            resolve(line);
+            try {
+              const data = new Uint8Array(event.target.result);
+              const workbook = XLSX.read(data, { type: 'array' });
+              const firstSheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[firstSheetName];
+              
+              const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1:A1");
+              const R = range.s.r; // first row
+              const headersList = [];
+              for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
+                let val = "";
+                if (cell && cell.v !== undefined) {
+                  val = String(cell.v).trim().replace(/['"]/g, '');
+                }
+                headersList.push(val);
+              }
+              resolve(headersList);
+            } catch (err) {
+              reject(err);
+            }
           };
           reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
-          reader.readAsText(file.slice(0, 1024));
+          reader.readAsArrayBuffer(file);
         });
-        
-        const headers = firstLine.split(',').map(h => h.trim().replace(/['"]/g, ''));
         
         if (tipo === 'operaciones' && !headers.includes('operacion_id')) {
           setError(`Error: El archivo "${file.name}" no corresponde al formato de Libro de Operaciones. Por favor, verifica la categoría o el documento antes de volver a intentar.`);
@@ -315,17 +318,27 @@ export default function Formulario() {
       setTrabajosActivos(prev => prev.map(t => t.tempId === trabajo.tempId ? { ...t, cargandoSemas: true } : t));
       
       try {
-        const text = await new Promise((resolve, reject) => {
+        const records = await new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target.result);
+          reader.onload = (e) => {
+            try {
+              const data = new Uint8Array(e.target.result);
+              const workbook = XLSX.read(data, { type: 'array' });
+              const firstSheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[firstSheetName];
+              const jsonData = XLSX.utils.sheet_to_json(worksheet);
+              resolve(jsonData);
+            } catch (err) {
+              reject(err);
+            }
+          };
           reader.onerror = (e) => reject(new Error("Error leyendo archivo"));
-          reader.readAsText(trabajo.fileObject);
+          reader.readAsArrayBuffer(trabajo.fileObject);
         });
         
-        const records = parseCSV(text);
         const loteIds = new Set();
         records.forEach(r => {
-          if (r.lote_id) loteIds.add(r.lote_id);
+          if (r.lote_id) loteIds.add(String(r.lote_id).trim());
         });
         
         const semas = [];
@@ -387,7 +400,7 @@ export default function Formulario() {
           className={`btn ${activeTab === 'masiva' ? 'btn-primary' : 'btn-outline'}`}
           onClick={() => { setActiveTab('masiva'); setResult(null); setError(null); }}
         >
-          <Upload size={16} /> Carga Masiva (CSV)
+          <Upload size={16} /> Carga Masiva (Excel / XLSX)
         </button>
       </div>
 
@@ -554,36 +567,36 @@ export default function Formulario() {
               <Info size={18} style={{ color: 'var(--accent)' }} /> Plantillas Oficiales de Carga Masiva (OSINFOR)
             </h4>
             <p className="text-secondary" style={{ margin: '0 0 1rem', fontSize: '0.82rem' }}>
-              Descarga los formatos CSV oficiales de muestra para estructurar tus datos correctamente y evitar incidentes en la carga masiva.
+              Descarga los formatos Excel / XLSX oficiales de muestra para estructurar tus datos correctamente y evitar incidentes en la carga masiva.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
               <a 
-                href="/arboles_sample.csv" 
-                download="arboles_template.csv" 
+                href="/arboles_sample.xlsx" 
+                download="arboles_template.xlsx" 
                 className="btn btn-outline" 
                 style={{ fontSize: '0.8rem', justifyContent: 'center', height: 'auto', padding: '0.5rem 0.75rem', gap: '0.4rem' }}
               >
                 Descargar Plantilla Censo
               </a>
               <a 
-                href="/operaciones_sample.csv" 
-                download="operaciones_template.csv" 
+                href="/operaciones_sample.xlsx" 
+                download="operaciones_template.xlsx" 
                 className="btn btn-outline" 
                 style={{ fontSize: '0.8rem', justifyContent: 'center', height: 'auto', padding: '0.5rem 0.75rem', gap: '0.4rem' }}
               >
                 Descargar Plantilla Operaciones
               </a>
               <a 
-                href="/lotes_sample.csv" 
-                download="lotes_template.csv" 
+                href="/lotes_sample.xlsx" 
+                download="lotes_template.xlsx" 
                 className="btn btn-outline" 
                 style={{ fontSize: '0.8rem', justifyContent: 'center', height: 'auto', padding: '0.5rem 0.75rem', gap: '0.4rem' }}
               >
                 Descargar Plantilla Lotes
               </a>
               <a 
-                href="/balances_sample.csv" 
-                download="balances_template.csv" 
+                href="/balances_sample.xlsx" 
+                download="balances_template.xlsx" 
                 className="btn btn-outline" 
                 style={{ fontSize: '0.8rem', justifyContent: 'center', height: 'auto', padding: '0.5rem 0.75rem', gap: '0.4rem' }}
               >
@@ -594,12 +607,12 @@ export default function Formulario() {
 
           <div className="card-flat">
             <h3 style={{ margin: '0 0 1.25rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Upload size={18} style={{ color: 'var(--accent)' }} /> Carga de Archivos de Datos (CSV)
+              <Upload size={18} style={{ color: 'var(--accent)' }} /> Carga de Archivos de Datos (Excel / XLSX)
             </h3>
             <form onSubmit={handleFileUpload}>
               <div className="form-group">
                 <label className="form-label" id="file-upload-label">
-                  Arrastrar o Seleccionar Archivos CSV
+                  Arrastrar o Seleccionar Archivos Excel / XLSX
                 </label>
                 
                 {/* Accessible Dropzone Area */}
@@ -634,7 +647,7 @@ export default function Formulario() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv"
+                    accept=".xlsx"
                     multiple
                     onChange={(e) => handleFilesSelection(Array.from(e.target.files))}
                     disabled={loading}
@@ -646,7 +659,7 @@ export default function Formulario() {
                       {isDragOver ? '¡Suelta los archivos aquí!' : 'Arrastra archivos aquí o haz clic para seleccionar'}
                     </span>
                     <span id="file-upload-desc" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                      Solo archivos .csv | Se auto-detectará el tipo según el nombre
+                      Solo archivos .xlsx | Se auto-detectará el tipo según el nombre
                     </span>
                   </div>
                 </div>

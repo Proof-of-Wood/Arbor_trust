@@ -5,3 +5,4 @@ pydantic==2.10.3
 python-multipart==0.0.20
 qrcode[pil]==8.0
 Pillow==11.1.0
+openpyxl==3.1.2

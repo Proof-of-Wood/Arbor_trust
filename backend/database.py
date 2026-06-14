@@ -220,7 +220,7 @@ def procesar_archivo_background(job_id: str, file_path: str, tipo_archivo: str) 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Archivo no encontrado en la ruta: {file_path}")
             
-        df = pd.read_csv(file_path, encoding="utf-8-sig")
+        df = pd.read_excel(file_path, engine='openpyxl')
         df = df.fillna("")
         records = df.to_dict(orient="records")
         
@@ -529,17 +529,17 @@ def init_db() -> None:
 # CARGA INICIAL DE DATOS CSV → SQLite
 # ──────────────────────────────────────────────
 
-def seed_from_csv() -> None:
+def seed_from_excel() -> None:
     """
-    Importa los datos de los CSVs de muestra a SQLite.
+    Importa los datos de los archivos Excel de muestra a SQLite.
     Es idempotente: usa INSERT OR IGNORE para no duplicar.
     """
     conn = get_connection()
     try:
         # 1. Árboles (censo forestal)
-        arboles_path = DATA_DIR / "arboles_sample.csv"
+        arboles_path = DATA_DIR / "arboles_sample.xlsx"
         if arboles_path.exists():
-            df = pd.read_csv(arboles_path, encoding="utf-8-sig")
+            df = pd.read_excel(arboles_path, engine='openpyxl')
             df = df.fillna("")
             df["arbol_id"] = df["arbol_id"].astype(str)
             for _, row in df.iterrows():
@@ -554,9 +554,9 @@ def seed_from_csv() -> None:
             print(f"[SEED] arboles: {len(df)} registros importados.")
 
         # 2. Balances de extracción
-        balances_path = DATA_DIR / "balances_sample.csv"
+        balances_path = DATA_DIR / "balances_sample.xlsx"
         if balances_path.exists():
-            df = pd.read_csv(balances_path, encoding="utf-8-sig")
+            df = pd.read_excel(balances_path, engine='openpyxl')
             df = df.fillna("")
             for _, row in df.iterrows():
                 conn.execute("""
@@ -571,9 +571,9 @@ def seed_from_csv() -> None:
             print(f"[SEED] balances_extraccion: {len(df)} registros importados.")
 
         # 3. Lotes (transporte primario)
-        lotes_path = DATA_DIR / "lotes_sample.csv"
+        lotes_path = DATA_DIR / "lotes_sample.xlsx"
         if lotes_path.exists():
-            df = pd.read_csv(lotes_path, encoding="utf-8-sig")
+            df = pd.read_excel(lotes_path, engine='openpyxl')
             df = df.fillna("")
             for _, row in df.iterrows():
                 conn.execute("""
@@ -587,9 +587,9 @@ def seed_from_csv() -> None:
             print(f"[SEED] lotes: {len(df)} registros importados.")
 
         # 4. Operaciones (tala/trozado/despacho)
-        ops_path = DATA_DIR / "operaciones_sample.csv"
+        ops_path = DATA_DIR / "operaciones_sample.xlsx"
         if ops_path.exists():
-            df = pd.read_csv(ops_path, encoding="utf-8-sig")
+            df = pd.read_excel(ops_path, engine='openpyxl')
             df = df.fillna("")
             tipo_a_punto = {"Tala": 2, "Trozado": 2, "Despacho": 3, "Transformacion": 4}
             for _, row in df.iterrows():
@@ -617,5 +617,5 @@ def seed_from_csv() -> None:
 
 if __name__ == "__main__":
     init_db()
-    seed_from_csv()
+    seed_from_excel()
 
