@@ -1,25 +1,3 @@
-"""
-ArborTrust - engine/hashing.py
-================================
-MÓDULO 2: Sistema de Bitácora de Integridad (Cadena de Hash SHA-256)
-
-Reemplaza la necesidad de blockchain con una cadena de bloques lógica
-dentro de SQLite. Cada evento nuevo hashea su propio payload + el hash
-del evento anterior, creando una cadena inmutable auditable.
-
-Flujo de la cadena:
-  Genesis (hash_anterior=NULL)
-      |
-      v
-  Evento_1: hash = SHA256(payload_1 + timestamp_1 + actor_1)
-      |
-      v
-  Evento_2: hash = SHA256(payload_2 + timestamp_2 + actor_2 + Evento_1.hash)
-      |
-      v
-  ... (cadena rota si hash_anterior != hash real del evento previo)
-"""
-
 import hashlib
 import json
 import uuid
