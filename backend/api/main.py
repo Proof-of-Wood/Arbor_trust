@@ -7,7 +7,7 @@ Provee la interfaz para registrar operaciones y consultar trazabilidad.
 Integra la bitácora de integridad (SHA-256) y el motor de validación.
 """
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 
-from database import get_connection
+from database import get_connection, init_db, procesar_archivo_background
 from engine.hashing import registrar_evento, Acciones
 from engine.validation import validar_lote
 
@@ -38,6 +38,112 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
+
+
+# ──────────────────────────────────────────────
+# ENDPOINTS DE CARGA ASÍNCRONA E IDEMPOTENTE
+# ──────────────────────────────────────────────
+
+@app.post("/api/v1/trazabilidad/cargar-archivo", status_code=202)
+async def cargar_archivo(
+    background_tasks: BackgroundTasks,
+    tipo_archivo: str,
+    file: UploadFile = File(...)
+):
+    import hashlib
+    import json
+    
+    # Validación de formato y content-type
+    filename = file.filename or ""
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Formato de archivo no soportado. Debe ser .csv")
+        
+    expected_mimetypes = ["text/csv", "application/vnd.ms-excel", "text/plain"]
+    if file.content_type not in expected_mimetypes:
+        raise HTTPException(status_code=400, detail=f"Content-Type inválido. Debe ser uno de {expected_mimetypes}")
+
+    # 1. Leer contenido para calcular hash SHA-256
+    content = await file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
+    
+    conn = get_connection()
+    try:
+        # 2. Control de Idempotencia: Verificar si el hash ya existe y no falló
+        carga = conn.execute("SELECT * FROM registro_cargas WHERE file_hash = ? AND estado != 'FALLIDO'", (file_hash,)).fetchone()
+        if carga:
+            resultado_data = None
+            if carga["resultado"]:
+                try:
+                    resultado_data = json.loads(carga["resultado"])
+                except Exception:
+                    resultado_data = carga["resultado"]
+            return {
+                "mensaje": "Archivo ya procesado o en cola (Idempotencia)",
+                "job_id": carga["id"],
+                "estado": carga["estado"],
+                "resultado": resultado_data
+            }
+            
+        # 3. Registrar nuevo job
+        job_id = f"JOB-{uuid.uuid4().hex[:8].upper()}"
+        conn.execute("""
+            INSERT INTO registro_cargas (id, file_hash, tipo_archivo, estado)
+            VALUES (?, ?, ?, 'EN_COLA')
+        """, (job_id, file_hash, tipo_archivo))
+        conn.commit()
+    finally:
+        conn.close()
+        
+    # 4. Guardar archivo temporalmente
+    temp_dir = Path("./temp_uploads")
+    temp_dir.mkdir(exist_ok=True)
+    temp_file_path = temp_dir / f"{job_id}.csv"
+    
+    with open(temp_file_path, "wb") as f:
+        f.write(content)
+        
+    # 5. Agregar background task
+    background_tasks.add_task(procesar_archivo_background, job_id, str(temp_file_path), tipo_archivo)
+    
+    return {
+        "mensaje": "Archivo recibido y en cola para procesamiento",
+        "job_id": job_id,
+        "estado": "EN_COLA"
+    }
+
+
+@app.get("/api/v1/trazabilidad/estado/{job_id}")
+def obtener_estado_carga(job_id: str):
+    import json
+    
+    conn = get_connection()
+    try:
+        carga = conn.execute("SELECT * FROM registro_cargas WHERE id = ?", (job_id,)).fetchone()
+        if not carga:
+            raise HTTPException(status_code=404, detail="Trabajo de carga no encontrado")
+            
+        resultado_data = None
+        if carga["resultado"]:
+            try:
+                resultado_data = json.loads(carga["resultado"])
+            except Exception:
+                resultado_data = carga["resultado"]
+                
+        return {
+            "job_id": carga["id"],
+            "tipo_archivo": carga["tipo_archivo"],
+            "estado": carga["estado"],
+            "resultado": resultado_data,
+            "fecha_creacion": carga["fecha_creacion"]
+        }
+    finally:
+        conn.close()
+
 
 
 # ──────────────────────────────────────────────

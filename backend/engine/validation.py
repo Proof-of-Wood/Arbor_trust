@@ -63,7 +63,7 @@ def validar_lote(lote_id: str) -> dict:
         # En un modelo real complejo, un lote puede tener varias trozas de distintos árboles.
         # Aquí simplificaremos: buscaremos las operaciones que alimentaron este lote.
         # (Idealmente, la tabla operaciones tendría un lote_id cuando se despacha).
-        ops = pd.read_sql_query("SELECT * FROM operaciones WHERE lote_id = ?", conn)
+        ops = pd.read_sql_query("SELECT * FROM operaciones WHERE lote_id = ?", conn, params=(lote_id,))
         
         # Si no hay operaciones vinculadas, busquemos por GTF
         if ops.empty and lote_row["numero_gtf"]:

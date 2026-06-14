@@ -51,5 +51,43 @@ export const api = {
       console.error('API Error:', error);
       throw error;
     }
+  },
+
+  // Cargar archivo plano (Censo, Operaciones, Lotes, Balances)
+  cargarArchivo: async (file, tipoArchivo) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${API_BASE_URL}/trazabilidad/cargar-archivo?tipo_archivo=${tipoArchivo}`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Error en la subida del archivo');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
+
+  // Obtener estado del job de carga
+  obtenerEstadoCarga: async (jobId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trazabilidad/estado/${jobId}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Error al obtener estado');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   }
 };
