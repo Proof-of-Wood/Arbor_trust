@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Save, CheckCircle, ShieldAlert, AlertTriangle, Info, TreePine, Truck, Factory, Scissors, MapPin, Leaf, Lock, ShieldCheck, Globe, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../App';
 
 const SPECIES = ['Shihuahuaco', 'Cumala', 'Cedro', 'Tornillo', 'Lupuna', 'Caoba'];
 
@@ -16,7 +17,8 @@ const categoryMap = {
   censo: { label: 'Censo Forestal', color: '#4ade80', bg: 'rgba(74, 222, 128, 0.15)' },
   operaciones: { label: 'Libro de Operaciones', color: '#c084fc', bg: 'rgba(192, 132, 252, 0.15)' },
   lotes: { label: 'Lotes y Guías', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.15)' },
-  balances: { label: 'Balances de Extracción', color: '#fb923c', bg: 'rgba(251, 146, 60, 0.15)' }
+  balances: { label: 'Balances de Extracción', color: '#fb923c', bg: 'rgba(251, 146, 60, 0.15)' },
+  plan: { label: 'Plan de Aprovechamiento', color: '#facc15', bg: 'rgba(250, 204, 21, 0.15)' }
 };
 
 const traducirError = (errStr) => {
@@ -37,9 +39,25 @@ const traducirError = (errStr) => {
 // parseCSV removed since we migrated to Excel (.xlsx) formats using SheetJS (xlsx)
 
 export default function Formulario() {
-  // Estado para Tabs
-  const [activeTab, setActiveTab] = useState('individual'); // 'individual' o 'masiva'
+  const { auth } = useAuth();
   
+  const pideSession = auth || {
+    rol: 'Titular',
+    ruc: '20123456789',
+    serfor: 'REG-SER-2026-0001',
+    dni: '12345678',
+    placa: 'ABC-123'
+  };
+
+  // Estado para Tabs
+  const [activeTab, setActiveTab] = useState(() => {
+    return (pideSession.rol === 'Regente' || pideSession.rol === 'ARFFS') ? 'masiva' : 'individual';
+  });
+
+  const defaultActorId = pideSession.rol === 'Titular' ? pideSession.ruc : 
+                        (pideSession.rol === 'Regente' ? pideSession.serfor : 
+                        (pideSession.rol === 'Transportista' ? pideSession.dni : 'ACTOR-001'));
+
   // Estado para Formulario Individual
   const [loading, setLoading]   = useState(false);
   const [result, setResult]     = useState(null);
@@ -53,7 +71,7 @@ export default function Formulario() {
     especie:    'Shihuahuaco',
     volumen:    '',
     numero_gtf: '',
-    actor_id:   'ACTOR-001',
+    actor_id:   defaultActorId,
     fecha:      new Date().toISOString().split('T')[0],
     observacion:'',
   });
@@ -87,12 +105,18 @@ export default function Formulario() {
       const payload = {
         ...form,
         punto_cadena: config.punto,
-        tipo_actor:   config.actor,
+        tipo_actor:   pideSession.rol,
         volumen:      parseFloat(form.volumen),
         arbol_id:     form.arbol_id   || null,
+        id_arbol:     form.arbol_id   || null,
         troza_id:     form.troza_id   || null,
         lote_id:      form.lote_id    || null,
         numero_gtf:   form.numero_gtf || null,
+        actor_id:     defaultActorId,
+        ruc_institucion: (pideSession.rol === 'Titular' || pideSession.rol === 'Operador_CTP') ? pideSession.ruc : null,
+        registro_serfor: (pideSession.rol === 'Regente') ? pideSession.serfor : null,
+        dni_chofer: (pideSession.rol === 'Transportista') ? pideSession.dni : null,
+        placa_vehiculo: (pideSession.rol === 'Transportista') ? pideSession.placa : null,
       };
       const res = await api.registrarOperacion(payload);
       setResult(res);
@@ -155,6 +179,7 @@ export default function Formulario() {
   const detectType = (filename) => {
     const name = filename.toLowerCase();
     if (!name.endsWith('.xlsx')) return 'no_detectado';
+    if (name.includes('plan')) return 'plan';
     if (name.includes('censo')) return 'censo';
     if (name.includes('operaciones') || name.includes('libro')) return 'operaciones';
     if (name.includes('gtf') || name.includes('guia') || name.includes('lote')) return 'lotes';
@@ -250,6 +275,19 @@ export default function Formulario() {
           setLoading(false);
           return;
         }
+
+        if (tipo === 'plan') {
+          if (pideSession.rol !== 'Regente') {
+            setError(`Error: El rol "${pideSession.rol}" no está autorizado para cargar Planes de Aprovechamiento.`);
+            setLoading(false);
+            return;
+          }
+          if (!headers.includes('plan_id')) {
+            setError(`Error: El archivo "${file.name}" no corresponde al formato de Plan de Aprovechamiento. Por favor, verifica la categoría o el documento antes de volver a intentar.`);
+            setLoading(false);
+            return;
+          }
+        }
       } catch (err) {
         setError(`Error al leer el archivo "${file.name}": ${err.message}`);
         setLoading(false);
@@ -274,16 +312,21 @@ export default function Formulario() {
     // Disparar la subida de todos los archivos en paralelo sin bloquear el bucle (concurrente)
     nuevosTrabajos.forEach(async (trabajo) => {
       try {
-        const res = await api.cargarArchivo(trabajo.fileObject, trabajo.tipo);
+        let res;
+        if (trabajo.tipo === 'plan') {
+          res = await api.subirPlan(trabajo.fileObject);
+        } else {
+          res = await api.cargarArchivo(trabajo.fileObject, trabajo.tipo);
+        }
         
         setTrabajosActivos(prev => prev.map(t => {
           if (t.tempId === trabajo.tempId) {
             return {
               ...t,
-              id: res.job_id,
-              estado: res.estado,
-              progress: res.estado === 'COMPLETADO' ? 100 : 30,
-              resultado: res.resultado
+              id: res.job_id || res.plan_id,
+              estado: res.estado || 'COMPLETADO',
+              progress: 100,
+              resultado: res.resultado || res
             };
           }
           return t;
@@ -386,23 +429,27 @@ export default function Formulario() {
         </p>
       </div>
 
+      {/* Simulación de Sesión PIDE removida (Identity-First) */}
+
       {/* ── Tabs Selector ── */}
-      <div className="flex gap-sm mb-lg" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
-        <button
-          type="button"
-          className={`btn ${activeTab === 'individual' ? 'btn-primary' : 'btn-outline'}`}
-          onClick={() => { setActiveTab('individual'); setResult(null); setError(null); }}
-        >
-          <Scissors size={16} /> Registro Individual
-        </button>
-        <button
-          type="button"
-          className={`btn ${activeTab === 'masiva' ? 'btn-primary' : 'btn-outline'}`}
-          onClick={() => { setActiveTab('masiva'); setResult(null); setError(null); }}
-        >
-          <Upload size={16} /> Carga Masiva (Excel / XLSX)
-        </button>
-      </div>
+      {pideSession.rol !== 'Regente' && pideSession.rol !== 'ARFFS' && (
+        <div className="flex gap-sm mb-lg" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+          <button
+            type="button"
+            className={`btn ${activeTab === 'individual' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setActiveTab('individual'); setResult(null); setError(null); }}
+          >
+            <Scissors size={16} /> Registro Individual
+          </button>
+          <button
+            type="button"
+            className={`btn ${activeTab === 'masiva' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setActiveTab('masiva'); setResult(null); setError(null); }}
+          >
+            <Upload size={16} /> Carga Masiva (Excel / XLSX)
+          </button>
+        </div>
+      )}
 
       {/* ── VISTA REGISTRO INDIVIDUAL ── */}
       {activeTab === 'individual' && (
@@ -505,22 +552,12 @@ export default function Formulario() {
             </div>
           </div>
 
-          {/* Observaciones y actor */}
+          {/* Observaciones y actor oculto */}
           <div className="card-flat mt-md">
-            <div className="grid-2">
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">ID del Actor Responsable</label>
-                <input className="form-input" type="text" name="actor_id" value={form.actor_id}
-                  onChange={handleChange} required placeholder="Ej: ACTOR-001" />
-                <p className="text-muted mt-sm" style={{ fontSize: '0.78rem' }}>
-                  Rol asignado automáticamente: <strong>{config.actor.replace('_', ' ')}</strong>
-                </p>
-              </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Observaciones</label>
-                <textarea className="form-textarea" name="observacion" value={form.observacion}
-                  onChange={handleChange} placeholder="Detalles adicionales..." rows="3" />
-              </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Observaciones</label>
+              <textarea className="form-textarea" name="observacion" value={form.observacion}
+                onChange={handleChange} placeholder="Detalles adicionales..." rows="3" />
             </div>
           </div>
 
@@ -702,6 +739,9 @@ export default function Formulario() {
                                 <option value="censo">Censo Forestal</option>
                                 <option value="lotes">Lotes y Guías</option>
                                 <option value="balances">Balances de Extracción</option>
+                                {pideSession.rol === 'Regente' && (
+                                   <option value="plan">Plan de Aprovechamiento</option>
+                                 )}
                               </select>
                               
                               <button

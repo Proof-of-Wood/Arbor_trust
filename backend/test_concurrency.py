@@ -16,7 +16,7 @@ ROOT_DIR = BACKEND_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 # Importar funciones de base de datos para resetearla
-from database import get_connection, init_db, seed_from_excel
+from database import get_connection, init_db, seed_from_excel, resolver_ruc
 
 PORT = 8099
 BASE_URL = f"http://127.0.0.1:{PORT}"
@@ -37,42 +37,49 @@ def reset_database():
     print("[TEST] Base de datos inicializada y sembrada desde Excel.")
 
 def preinsert_test_trees():
-    """Pre-inserta los árboles necesarios en la tabla 'arboles' para que las pruebas pasen las FKs y Constraints."""
+    """Pre-inserta los árboles necesarios en la tabla censo_forestal/titulares/titulos/planes para que las pruebas pasen."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         print("[TEST] Pre-insertando árboles de prueba...")
         
+        # Preinsert titular, title, and plan
+        titular = "PRODUCTOR DEMO"
+        ruc = resolver_ruc(titular)
+        conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES (?, ?, 'Direccion Demo')", (ruc, titular))
+        conn.execute("INSERT OR IGNORE INTO titulos_habilitantes (id_titulo, id_titular, nombre_concesion, ubicacion_geografica) VALUES ('TH-001', ?, 'Concesion TH-001', 'Loreto, Peru')", (ruc,))
+        conn.execute("INSERT OR IGNORE INTO planes_aprovechamiento (id_plan, id_titulo, version, fecha_aprobacion, estado) VALUES ('PLAN-TH-001', 'TH-001', 1, '2026-06-14', 'Aprobado')")
+
         # 1. Árboles para Caso A
         for i in range(10):
             for j in range(5):
                 cursor.execute("""
-                    INSERT OR IGNORE INTO arboles (arbol_id, titulo_habilitante_id, titular, parcela_corta, especie, volumen_censado)
-                    VALUES (?, 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+                    INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                    VALUES (?, 'PLAN-TH-001', 'Shihuahuaco', 10.0, 'Autorizado', 'Aprovechable')
                 """, (f"ARB-A-{i}-{j}",))
                 
         # 2. Árboles para Caso B
         cursor.execute("""
-            INSERT OR IGNORE INTO arboles (arbol_id, titulo_habilitante_id, titular, parcela_corta, especie, volumen_censado)
-            VALUES ('ARB-B-1', 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+            INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+            VALUES ('ARB-B-1', 'PLAN-TH-001', 'Shihuahuaco', 10.0, 'Autorizado', 'Aprovechable')
         """)
         
         # 3. Árboles para Caso C
         for i in range(500):
             cursor.execute("""
-                INSERT OR IGNORE INTO arboles (arbol_id, titulo_habilitante_id, titular, parcela_corta, especie, volumen_censado)
-                VALUES (?, 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+                INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                VALUES (?, 'PLAN-TH-001', 'Shihuahuaco', 10.0, 'Autorizado', 'Aprovechable')
             """, (f"ARB-C-{i}",))
             
         # 4. Árboles para Caso D
         for i in range(5):
             cursor.execute("""
-                INSERT OR IGNORE INTO arboles (arbol_id, titulo_habilitante_id, titular, parcela_corta, especie, volumen_censado)
-                VALUES (?, 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+                INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                VALUES (?, 'PLAN-TH-001', 'Shihuahuaco', 10.0, 'Autorizado', 'Aprovechable')
             """, (f"ARB-D1-{i}",))
             cursor.execute("""
-                INSERT OR IGNORE INTO arboles (arbol_id, titulo_habilitante_id, titular, parcela_corta, especie, volumen_censado)
-                VALUES (?, 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+                INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                VALUES (?, 'PLAN-TH-001', 'Shihuahuaco', 10.0, 'Autorizado', 'Aprovechable')
             """, (f"ARB-D2-{i}",))
             
         conn.commit()
@@ -98,8 +105,8 @@ async def main():
     print(f"[TEST] Iniciando servidor Uvicorn en el puerto {PORT}...")
     server_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", str(PORT)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         cwd=str(BACKEND_DIR)
     )
     
@@ -109,7 +116,7 @@ async def main():
     # Verificar si el servidor está levantado
     async with httpx.AsyncClient() as client:
         try:
-            res = await client.get(f"{BASE_URL}/api/v1/reportes/fallas")
+            res = await client.get(f"{BASE_URL}/api/v1/reportes/fallas", headers={"X-PIDE-Rol": "OSINFOR"})
             if res.status_code == 200:
                 print("[TEST] Servidor levantado correctamente.")
         except Exception as e:
@@ -160,6 +167,7 @@ async def main():
                 return await client.post(
                     f"{BASE_URL}/api/v1/trazabilidad/cargar-archivo?tipo_archivo=operaciones",
                     files=files,
+                    headers={"X-PIDE-Rol": "Titular", "X-PIDE-RUC": "20123456789"},
                     timeout=30.0
                 )
                 
@@ -188,7 +196,7 @@ async def main():
         for jid in job_ids:
             while True:
                 async with httpx.AsyncClient() as client:
-                    status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid}")
+                    status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid}", headers={"X-PIDE-Rol": "Titular"})
                     status = status_res.json()["estado"]
                     if status in ("COMPLETADO", "FALLIDO"):
                         print(f"[TEST] Job {jid} finalizado con estado: {status}")
@@ -286,7 +294,7 @@ async def main():
         # Esperar a que el job falle
         while True:
             async with httpx.AsyncClient() as client:
-                status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid_c}")
+                status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid_c}", headers={"X-PIDE-Rol": "Titular"})
                 status = status_res.json()["estado"]
                 if status in ("COMPLETADO", "FALLIDO"):
                     print(f"[TEST] Job corrupto finalizó con estado: {status}")
@@ -379,7 +387,7 @@ async def main():
         for jid in (jid_d1, jid_d2):
             while True:
                 async with httpx.AsyncClient() as client:
-                    status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid}")
+                    status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid}", headers={"X-PIDE-Rol": "Titular"})
                     status = status_res.json()["estado"]
                     if status in ("COMPLETADO", "FALLIDO"):
                         assert status == "COMPLETADO"
@@ -403,6 +411,369 @@ async def main():
             print("[TEST] CASO D COMPLETADO CON ÉXITO: Balances descontados matemáticamente con precisión exacta y sin pérdida de volumen.")
         finally:
             conn.close()
+
+        # ───────────────────────────────────────────────────────────
+        # NUEVO CASO DE PRUEBA: TEST ADENDA (UPSERT)
+        # ───────────────────────────────────────────────────────────
+        print("\n" + "-" * 50)
+        print("EJECUTANDO PRUEBA ADENDA: Actualización de Balances (UPSERT)")
+        print("-" * 50)
+        
+        # Generar un archivo de balance con un volumen autorizado modificado para BAL-001
+        filepath_adenda = test_files_dir / "test_adenda.xlsx"
+        rows_adenda = [
+            {
+                "balance_id": "BAL-001",
+                "titulo_habilitante_id": "TH-001",
+                "parcela_corta": "PC1",
+                "especie": "Shihuahuaco",
+                "volumen_autorizado": 150.0,
+                "volumen_movilizado": 86.0,
+                "saldo_disponible": 64.0,
+                "estado_saldo": "Positivo"
+            }
+        ]
+        generate_excel_file(str(filepath_adenda), rows_adenda)
+        
+        # Subir el archivo de balance modificado
+        async with httpx.AsyncClient() as client:
+            with open(filepath_adenda, "rb") as f:
+                files = {"file": (filepath_adenda.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                res_adenda = await client.post(
+                    f"{BASE_URL}/api/v1/trazabilidad/cargar-archivo?tipo_archivo=balances",
+                    files=files,
+                    headers={"X-PIDE-Rol": "OSINFOR"},
+                    timeout=30.0
+                )
+        assert res_adenda.status_code == 202
+        jid_adenda = res_adenda.json()["job_id"]
+        
+        # Esperar a que termine
+        while True:
+            async with httpx.AsyncClient() as client:
+                status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid_adenda}", headers={"X-PIDE-Rol": "OSINFOR"})
+                status = status_res.json()["estado"]
+                if status in ("COMPLETADO", "FALLIDO"):
+                    assert status == "COMPLETADO"
+                    break
+            await asyncio.sleep(0.5)
+            
+        # Verificar en base de datos que el volumen fue actualizado y el saldo recalculado
+        conn = get_connection()
+        try:
+            bal_updated = conn.execute("SELECT * FROM balances_extraccion WHERE balance_id = 'BAL-001'").fetchone()
+            print(f"[TEST] Balance BAL-001 después de adenda: autorizado={bal_updated['volumen_autorizado']}, disponible={bal_updated['saldo_disponible']}")
+            assert bal_updated["volumen_autorizado"] == 150.0, f"Esperado 150.0, obtenido {bal_updated['volumen_autorizado']}"
+            # Saldo disponible debe ser 150.0 - volumen_movilizado
+            assert bal_updated["saldo_disponible"] == 150.0 - bal_updated["volumen_movilizado"]
+            print("[TEST] PRUEBA ADENDA COMPLETADA CON ÉXITO: Cláusula UPSERT actualizó el volumen de forma correcta.")
+        finally:
+            conn.close()
+
+        # ───────────────────────────────────────────────────────────
+        # NUEVO CASO DE PRUEBA: TEST RENDIMIENTO IMPOSIBLE (CTP)
+        # ───────────────────────────────────────────────────────────
+        print("\n" + "-" * 50)
+        print("EJECUTANDO PRUEBA RENDIMIENTO IMPOSIBLE: Regla de 60% Máximo CTP")
+        print("-" * 50)
+        
+        # Insertar un lote de prueba LOT-R y pre-insertar árbol y tala para pasar validaciones previas
+        conn = get_connection()
+        try:
+            titular = "PRODUCTOR DEMO"
+            ruc = resolver_ruc(titular)
+            conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES (?, ?, 'Direccion Demo')", (ruc, titular))
+            conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES (?, ?, 'Direccion Demo')", (resolver_ruc('ACTOR-TEST'), 'ACTOR-TEST'))
+            conn.execute("INSERT OR IGNORE INTO titulos_habilitantes (id_titulo, id_titular, nombre_concesion, ubicacion_geografica) VALUES ('TH-001', ?, 'Concesion TH-001', 'Loreto, Peru')", (ruc,))
+            conn.execute("INSERT OR IGNORE INTO planes_aprovechamiento (id_plan, id_titulo, version, fecha_aprobacion, estado) VALUES ('PLAN-TH-001', 'TH-001', 1, '2026-06-14', 'Aprobado')")
+
+            conn.execute("""
+                INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                VALUES ('ARB-R-1', 'PLAN-TH-001', 'Shihuahuaco', 100.0, 'Autorizado', 'Aprovechable')
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO lotes (lote_id, numero_gtf, titulo_habilitante_id, titular, parcela_corta, especie, volumen_total)
+                VALUES ('LOT-R', 'GTF-R-1', 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 10.0)
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO operaciones (operacion_id, tipo_operacion, punto_cadena, id_arbol, lote_id, parcela_corta, especie, volumen, numero_gtf, actor_id, id_titular, fecha)
+                VALUES ('OP-R-TALA', 'Tala', 2, 'ARB-R-1', 'LOT-R', 'PC1', 'Shihuahuaco', 10.0, 'GTF-R-1', 'ACTOR-TEST', ?, '2026-06-14')
+            """, (resolver_ruc('ACTOR-TEST'),))
+            conn.commit()
+        finally:
+            conn.close()
+            
+        # Generar un archivo de operación de transformación con rendimiento imposible: salida = 8.5 m³ (rendimiento = 85%)
+        filepath_trans = test_files_dir / "test_trans.xlsx"
+        rows_trans = [
+            {
+                "operacion_id": "OP-R-TRANS",
+                "tipo_operacion": "Transformacion",
+                "lote_id": "LOT-R",
+                "parcela_corta": "PC1",
+                "especie": "Shihuahuaco",
+                "volumen": 8.5,
+                "actor_id": "ACTOR-CTP",
+                "fecha": "2026-06-15"
+            }
+        ]
+        generate_excel_file(str(filepath_trans), rows_trans)
+        
+        # Subir la operación de transformación
+        async with httpx.AsyncClient() as client:
+            with open(filepath_trans, "rb") as f:
+                files = {"file": (filepath_trans.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                res_trans = await client.post(
+                    f"{BASE_URL}/api/v1/trazabilidad/cargar-archivo?tipo_archivo=operaciones",
+                    files=files,
+                    headers={"X-PIDE-Rol": "Operador_CTP", "X-PIDE-RUC": "20123456789"},
+                    timeout=30.0
+                )
+        assert res_trans.status_code == 202
+        jid_trans = res_trans.json()["job_id"]
+        
+        # Esperar a que termine
+        while True:
+            async with httpx.AsyncClient() as client:
+                status_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/estado/{jid_trans}", headers={"X-PIDE-Rol": "Operador_CTP"})
+                status = status_res.json()["estado"]
+                if status in ("COMPLETADO", "FALLIDO"):
+                    assert status == "COMPLETADO"
+                    break
+            await asyncio.sleep(0.5)
+            
+        # Verificar que el lote LOT-R pasó a Semáforo Rojo debido al rendimiento imposible
+        conn = get_connection()
+        try:
+            lote_r = conn.execute("SELECT * FROM lotes WHERE lote_id = 'LOT-R'").fetchone()
+            print(f"[TEST] Lote LOT-R semáforo: {lote_r['color_semaforo']}, mensaje: {lote_r['mensaje_validacion']}")
+            assert lote_r["color_semaforo"] == "Rojo"
+            assert "Rendimiento de aserrío físicamente imposible" in lote_r["mensaje_validacion"]
+            
+            # Verificar validaciones
+            val_r = conn.execute("SELECT * FROM validaciones WHERE lote_id = 'LOT-R' AND regla = 'rendimiento_ctp'").fetchone()
+            assert val_r is not None
+            assert val_r["color_semaforo"] == "Rojo"
+            print("[TEST] PRUEBA RENDIMIENTO IMPOSIBLE COMPLETADA CON ÉXITO: Bloqueo de aserrío ilegal confirmado.")
+        finally:
+            conn.close()
+
+        # ───────────────────────────────────────────────────────────
+        # NUEVO CASO DE PRUEBA: TEST CASCADA RETROACTIVA
+        # ───────────────────────────────────────────────────────────
+        print("\n" + "-" * 50)
+        print("EJECUTANDO PRUEBA CASCADA RETROACTIVA: Efecto Dominó OSINFOR")
+        print("-" * 50)
+        
+        # Insertar árbol, lote y operación de tala inicial
+        conn = get_connection()
+        try:
+            titular = "PRODUCTOR DEMO"
+            ruc = resolver_ruc(titular)
+            conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES (?, ?, 'Direccion Demo')", (ruc, titular))
+            conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES (?, ?, 'Direccion Demo')", (resolver_ruc('ACTOR-TEST'), 'ACTOR-TEST'))
+            conn.execute("INSERT OR IGNORE INTO titulos_habilitantes (id_titulo, id_titular, nombre_concesion, ubicacion_geografica) VALUES ('TH-001', ?, 'Concesion TH-001', 'Loreto, Peru')", (ruc,))
+            conn.execute("INSERT OR IGNORE INTO planes_aprovechamiento (id_plan, id_titulo, version, fecha_aprobacion, estado) VALUES ('PLAN-TH-001', 'TH-001', 1, '2026-06-14', 'Aprobado')")
+
+            conn.execute("""
+                INSERT OR IGNORE INTO censo_forestal (id_arbol, id_plan, id_especie, volumen_autorizado, estado, condicion)
+                VALUES ('ARB-CASCADA-1', 'PLAN-TH-001', 'Shihuahuaco', 100.0, 'Autorizado', 'Aprovechable')
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO lotes (lote_id, numero_gtf, titulo_habilitante_id, titular, parcela_corta, especie, volumen_total)
+                VALUES ('LOT-CASCADA-1', 'GTF-C-1', 'TH-001', 'PRODUCTOR DEMO', 'PC1', 'Shihuahuaco', 5.0)
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO operaciones (operacion_id, tipo_operacion, punto_cadena, id_arbol, lote_id, parcela_corta, especie, volumen, numero_gtf, actor_id, id_titular, fecha)
+                VALUES ('OP-C-TALA', 'Tala', 2, 'ARB-CASCADA-1', 'LOT-CASCADA-1', 'PC1', 'Shihuahuaco', 5.0, 'GTF-C-1', 'ACTOR-TEST', ?, '2026-06-14')
+            """, (resolver_ruc('ACTOR-TEST'),))
+            conn.commit()
+        finally:
+            conn.close()
+            
+        # Validar el lote para que quede en Verde
+        async with httpx.AsyncClient() as client:
+            val_res = await client.get(f"{BASE_URL}/api/v1/trazabilidad/timeline/LOT-CASCADA-1", headers={"X-PIDE-Rol": "OSINFOR"})
+            assert val_res.status_code == 200
+            print(f"[TEST] Semáforo inicial del lote cascada: {val_res.json()['color_semaforo']}")
+            
+        # Penalizar el árbol origen mediante endpoint administrativo
+        async with httpx.AsyncClient() as client:
+            penalizar_payload = {
+                "arbol_id": "ARB-CASCADA-1",
+                "motivo": "Árbol fantasma detectado por OSINFOR"
+            }
+            res_penalizar = await client.post(
+                f"{BASE_URL}/api/v1/supervision/penalizar-origen",
+                json=penalizar_payload,
+                headers={"X-PIDE-Rol": "OSINFOR"},
+                timeout=30.0
+            )
+        assert res_penalizar.status_code == 200
+        print(f"[TEST] Respuesta de penalización: {res_penalizar.json()}")
+        
+        # Verificar estado final del lote y del árbol
+        conn = get_connection()
+        try:
+            arbol_f = conn.execute("SELECT estado FROM censo_forestal WHERE id_arbol = 'ARB-CASCADA-1'").fetchone()
+            assert arbol_f["estado"] == "FRAUDE_DETECTADO"
+            
+            lote_f = conn.execute("SELECT * FROM lotes WHERE lote_id = 'LOT-CASCADA-1'").fetchone()
+            print(f"[TEST] Lote final semáforo: {lote_f['color_semaforo']}")
+            print(f"[TEST] Lote final mensaje: {lote_f['mensaje_validacion']}")
+            assert lote_f["color_semaforo"] == "Rojo"
+            assert lote_f["mensaje_validacion"].startswith("[ALERTA RETROACTIVA OSINFOR]")
+            
+            # Verificar auditoría criptográfica
+            audit_f = conn.execute("SELECT * FROM logs_auditoria WHERE entidad_id = 'LOT-CASCADA-1' AND tipo_actor = 'OSINFOR'").fetchone()
+            assert audit_f is not None
+            assert audit_f["accion"] == "BLOQUEAR_LOTE"
+            print("[TEST] PRUEBA CASCADA RETROACTIVA COMPLETADA CON ÉXITO: Penalización ex-post propagada con éxito.")
+        finally:
+            conn.close()
+
+        # ───────────────────────────────────────────────────────────
+        # NUEVOS TESTS DE INTEGRIDAD Y ROLES PCM/PIDE
+        # ───────────────────────────────────────────────────────────
+        print("\n" + "-" * 50)
+        print("EJECUTANDO NUEVOS TESTS DE INTEGRIDAD Y ROLES PIDE")
+        print("-" * 50)
+
+        async with httpx.AsyncClient() as client:
+            # 1. Test de Integridad de Plan (Sin plan aprobado)
+            # Preinsertar titular y título pero NO plan
+            conn = get_connection()
+            try:
+                conn.execute("INSERT OR IGNORE INTO titulares (ruc_dni, nombre, direccion) VALUES ('20555555555', 'Titular No Plan', 'Direccion')")
+                conn.execute("INSERT OR IGNORE INTO titulos_habilitantes (id_titulo, id_titular, nombre_concesion, ubicacion_geografica) VALUES ('TH-NO-PLAN', '20555555555', 'Concesion Sin Plan', 'Puno')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            print("[TEST] 1. Ejecutando Test de Integridad de Plan (Tala sin plan)...")
+            res_no_plan = await client.post(
+                f"{BASE_URL}/api/v1/operaciones/registrar",
+                json={
+                    "tipo_operacion": "Tala",
+                    "punto_cadena": 2,
+                    "arbol_id": "ARB-NO-PLAN",
+                    "parcela_corta": "PC1",
+                    "especie": "Shihuahuaco",
+                    "volumen": 5.0,
+                    "actor_id": "ACTOR-NO-PLAN",
+                    "fecha": "2026-06-14"
+                },
+                headers={"X-PIDE-Rol": "Titular", "X-PIDE-RUC": "20555555555"}
+            )
+            print(f"[TEST] Resultado Tala sin plan: status={res_no_plan.status_code}, respuesta={res_no_plan.text}")
+            assert res_no_plan.status_code == 400
+            assert "No existe un Plan de Aprovechamiento aprobado" in res_no_plan.json()["detail"]
+            print("[TEST] Test de Integridad de Plan aprobado con éxito.")
+
+            # 2. Test de Relación Actor-Título (403 si RUC ajeno intenta registrar)
+            print("[TEST] 2. Ejecutando Test de Relación Actor-Título (RUC ajeno)...")
+            res_wrong_actor = await client.post(
+                f"{BASE_URL}/api/v1/operaciones/registrar",
+                json={
+                    "tipo_operacion": "Tala",
+                    "punto_cadena": 2,
+                    "arbol_id": "ARB-A-0-0",
+                    "parcela_corta": "PC1",
+                    "especie": "Shihuahuaco",
+                    "volumen": 1.0,
+                    "actor_id": "ACTOR-LOAD",
+                    "fecha": "2026-06-14"
+                },
+                headers={"X-PIDE-Rol": "Titular", "X-PIDE-RUC": "20999999999"} # RUC ajeno
+            )
+            print(f"[TEST] Resultado RUC ajeno: status={res_wrong_actor.status_code}, respuesta={res_wrong_actor.text}")
+            assert res_wrong_actor.status_code == 403
+            assert "no pertenece al Titular autenticado" in res_wrong_actor.json()["detail"]
+            print("[TEST] Test de Relación Actor-Título aprobado con éxito.")
+
+            # 3. Test de Actualización de Versión (Versioning & Volume validation)
+            print("[TEST] 3. Ejecutando Test de Actualización de Versión...")
+            # Subir Version 1 del plan con 10.0 m3
+            plan_v1_path = test_files_dir / "plan_v1.xlsx"
+            generate_excel_file(str(plan_v1_path), [{
+                "titulo_habilitante_id": "TH-001",
+                "plan_id": "PLAN-V",
+                "version": 1,
+                "fecha_aprobacion": "2026-06-14",
+                "arbol_id": "ARB-VERSION-TEST",
+                "especie": "Shihuahuaco",
+                "volumen_censado": 10.0
+            }])
+
+            with open(plan_v1_path, "rb") as f:
+                files_v1 = {"file": (plan_v1_path.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                res_plan_v1 = await client.post(
+                    f"{BASE_URL}/api/v1/planes/subir",
+                    files=files_v1,
+                    headers={"X-PIDE-Rol": "Regente"}
+                )
+            assert res_plan_v1.status_code == 201
+            print(f"[TEST] Plan V1 subido: {res_plan_v1.json()}")
+
+            # Registrar Tala de 5.0 (succeeds)
+            res_tala_1 = await client.post(
+                f"{BASE_URL}/api/v1/operaciones/registrar",
+                json={
+                    "tipo_operacion": "Tala",
+                    "punto_cadena": 2,
+                    "arbol_id": "ARB-VERSION-TEST",
+                    "parcela_corta": "PC1",
+                    "especie": "Shihuahuaco",
+                    "volumen": 5.0,
+                    "actor_id": "PRODUCTOR DEMO",
+                    "fecha": "2026-06-14"
+                },
+                headers={"X-PIDE-Rol": "Titular", "X-PIDE-RUC": "20123456789"}
+            )
+            assert res_tala_1.status_code == 201
+            print("[TEST] Primera Tala de 5.0 registrada con éxito.")
+
+            # Subir Version 2 del plan con volumen reducido de 2.0 m3
+            plan_v2_path = test_files_dir / "plan_v2.xlsx"
+            generate_excel_file(str(plan_v2_path), [{
+                "titulo_habilitante_id": "TH-001",
+                "plan_id": "PLAN-V",
+                "version": 2,
+                "fecha_aprobacion": "2026-06-15",
+                "arbol_id": "ARB-VERSION-TEST",
+                "especie": "Shihuahuaco",
+                "volumen_censado": 2.0
+            }])
+
+            with open(plan_v2_path, "rb") as f:
+                files_v2 = {"file": (plan_v2_path.name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                res_plan_v2 = await client.post(
+                    f"{BASE_URL}/api/v1/planes/subir",
+                    files=files_v2,
+                    headers={"X-PIDE-Rol": "Regente"}
+                )
+            assert res_plan_v2.status_code == 201
+            print(f"[TEST] Plan V2 subido: {res_plan_v2.json()}")
+
+            # Intentar registrar Tala de 5.0 (debe fallar contra saldo de V2 que es 2.0)
+            res_tala_2 = await client.post(
+                f"{BASE_URL}/api/v1/operaciones/registrar",
+                json={
+                    "tipo_operacion": "Tala",
+                    "punto_cadena": 2,
+                    "arbol_id": "ARB-VERSION-TEST",
+                    "parcela_corta": "PC1",
+                    "especie": "Shihuahuaco",
+                    "volumen": 5.0,
+                    "actor_id": "PRODUCTOR DEMO",
+                    "fecha": "2026-06-15"
+                },
+                headers={"X-PIDE-Rol": "Titular", "X-PIDE-RUC": "20123456789"}
+            )
+            print(f"[TEST] Resultado segunda Tala: status={res_tala_2.status_code}, respuesta={res_tala_2.text}")
+            assert res_tala_2.status_code == 400
+            assert "excede el saldo de su Plan de Aprovechamiento vigente" in res_tala_2.json()["detail"]
+            print("[TEST] Test de Actualización de Versión aprobado con éxito.")
 
         print("\n" + "=" * 60)
         print("¡TODAS LAS PRUEBAS DE CONCURRENCIA E IDEMPOTENCIA EN EXCEL (XLSX) PASARON CON ÉXITO!")

@@ -1,0 +1,22 @@
+# Tareas del Plan de Refactorización e Interoperabilidad GovTech (PIDE/PCM)
+
+- [x] REINGENIERÍA DE IDENTIFICADORES Y BASE DE DATOS (database.py y main.py)
+    - [x] Eliminar dependencia de `actor_id` en `operaciones`
+    - [x] Añadir columnas semánticas: `ruc_institucion`, `registro_serfor`, `dni_chofer`, `placa_vehiculo`
+    - [x] Validar identificadores forestales y civiles con regex en el Backend
+- [x] MATRIZ DE SEGURIDAD Y CONTROL DE ACCESO PIDE (main.py)
+    - [x] Extraer roles mediante cabeceras HTTP `X-PIDE-*`
+    - [x] Restringir carga masiva según el rol del actor (Regente, OSINFOR, Titular, CTP)
+- [x] BLINDAJE DE TRAZABILIDAD Y BÚSQUEDA SEMÁNTICA (database.py y main.py)
+    - [x] Crear endpoint `/api/v1/trazabilidad/buscar` para resolver GTF o Placa
+    - [x] Implementar versionamiento dinámico de Planes de Aprovechamiento
+- [x] REDISEÑO Y CORRESPONDENCIA DE LA INTERFAZ DE USUARIO (React)
+    - [x] Simular sesión PIDE global con persistencia en `localStorage` en `Formulario.jsx`
+    - [x] Agregar la opción "Plan de Aprovechamiento" en el panel de carga masiva en `Formulario.jsx`
+    - [x] Redireccionar subidas de planes de aprovechamiento a `api.subirPlan` en `Formulario.jsx`
+    - [x] Refactorizar `Dashboard.jsx` para mostrar Títulos Habilitantes activos cuando el rol no es OSINFOR
+    - [x] Refactorizar `Timeline.jsx` para desplegar el Censo Forestal y estado físico de árboles en pie / aprovechados ante una consulta de título habilitante
+- [x] SUITE DE QA Y PRUEBAS DE ESTRÉS CONCURRENTES (test_concurrency.py)
+    - [x] Modificar los generadores Excel temporales para usar los nuevos identificadores GovTech
+    - [x] Verificar restricción de roles, integridad de planes y versionamiento dinámico en pruebas de integración
+    - [x] Validar que todas las pruebas pasen al 100%

@@ -42,6 +42,41 @@ def _actualizar_estado_lote(lote_id: str, color_final: str, mensaje_final: str):
     finally:
         conn.close()
 
+def validar_rendimiento_ctp(volumen_ingreso: float, volumen_salida: float) -> dict:
+    """
+    Evalúa el rendimiento físico de transformación en CTP (aserradero).
+    Fórmula: (volumen_salida / volumen_ingreso) * 100
+    - > 60%: Rojo (Máximo biológico superado)
+    - > 55%: Amarillo (Auditoría ocular)
+    - <= 55%: Verde (Normal)
+    """
+    if volumen_ingreso <= 0:
+        rendimiento = 0.0
+    else:
+        rendimiento = (volumen_salida / volumen_ingreso) * 100.0
+
+    if rendimiento > 60.0:
+        return {
+            "resultado": "Rechazado",
+            "severidad": "Alta",
+            "color_semaforo": "Rojo",
+            "mensaje": f"Alerta de Blanqueo: Rendimiento de aserrío físicamente imposible ({rendimiento:.2f}%). Supera el máximo biológico (60%)"
+        }
+    elif rendimiento > 55.0:
+        return {
+            "resultado": "Advertencia",
+            "severidad": "Media",
+            "color_semaforo": "Amarillo",
+            "mensaje": f"Rendimiento inusualmente alto ({rendimiento:.2f}%). Requiere auditoría ocular en CTP"
+        }
+    else:
+        return {
+            "resultado": "Aprobado",
+            "severidad": "Baja",
+            "color_semaforo": "Verde",
+            "mensaje": f"Rendimiento de aserrío regular ({rendimiento:.2f}%)"
+        }
+
 def validar_lote(lote_id: str) -> dict:
     """
     Motor principal. Ejecuta las reglas de negocio sobre un lote.
@@ -75,6 +110,9 @@ def validar_lote(lote_id: str) -> dict:
             WHERE titulo_habilitante_id = ? AND parcela_corta = ? AND especie = ?
         """, (lote_row["titulo_habilitante_id"], lote_row["parcela_corta"], lote_row["especie"])).fetchone()
         
+        # Cargar operaciones de transformación asociadas a este lote
+        ops_trans = pd.read_sql_query("SELECT * FROM operaciones WHERE lote_id = ? AND tipo_operacion = 'Transformacion'", conn, params=(lote_id,))
+        
     finally:
         conn.close()
 
@@ -96,13 +134,43 @@ def validar_lote(lote_id: str) -> dict:
         color_final = "Rojo"
         mensajes.append("Árbol origen no encontrado.")
     else:
-        arboles_origen = ops["arbol_id"].dropna().unique()
+        arboles_origen = [str(x) for x in ops["id_arbol"].dropna().unique() if str(x) != ""]
         if len(arboles_origen) == 0:
             _guardar_validacion(lote_id, "existencia_arbol", "Rechazado", "Alta", "Rojo", "Las operaciones no tienen un ID de árbol asociado.")
             color_final = "Rojo"
             mensajes.append("Operaciones sin ID de árbol.")
         else:
-            _guardar_validacion(lote_id, "existencia_arbol", "Aprobado", "Baja", "Verde", f"Árboles origen verificados: {list(arboles_origen)}")
+            placeholders = ",".join("?" for _ in arboles_origen)
+            conn_v = get_connection()
+            try:
+                censo_rows = conn_v.execute(f"""
+                    SELECT c.id_arbol, c.estado, p.estado as plan_estado
+                    FROM censo_forestal c
+                    JOIN planes_aprovechamiento p ON c.id_plan = p.id_plan
+                    WHERE c.id_arbol IN ({placeholders})
+                """, arboles_origen).fetchall()
+            finally:
+                conn_v.close()
+            
+            censo_dict = {row["id_arbol"]: (row["estado"], row["plan_estado"]) for row in censo_rows}
+            inexistentes = [a for a in arboles_origen if a not in censo_dict]
+            fraudulentos = [a for a, (est, plan_est) in censo_dict.items() if est == "FRAUDE_DETECTADO"]
+            vencidos = [a for a, (est, plan_est) in censo_dict.items() if plan_est in ("Vencido", "Actualizado")]
+            
+            if inexistentes:
+                _guardar_validacion(lote_id, "existencia_arbol", "Rechazado", "Alta", "Rojo", f"Árboles origen no registrados en el censo: {inexistentes}")
+                color_final = "Rojo"
+                mensajes.append("Árbol origen no censado.")
+            elif fraudulentos:
+                _guardar_validacion(lote_id, "existencia_arbol", "Rechazado", "Alta", "Rojo", f"Bloqueo: Árbol origen suspendido por fraude: {fraudulentos}")
+                color_final = "Rojo"
+                mensajes.append("Árbol origen con fraude.")
+            elif vencidos:
+                _guardar_validacion(lote_id, "existencia_arbol", "Rechazado", "Alta", "Rojo", f"Bloqueo: Árbol origen pertenece a un Plan de Aprovechamiento vencido: {vencidos}")
+                color_final = "Rojo"
+                mensajes.append("Plan de Aprovechamiento vencido.")
+            else:
+                _guardar_validacion(lote_id, "existencia_arbol", "Aprobado", "Baja", "Verde", f"Árboles origen verificados: {arboles_origen}")
 
     # ── Regla 3: Volumen vs Saldo Disponible ──
     volumen_lote = _safe_float(lote_row["volumen_total"])
@@ -147,6 +215,20 @@ def validar_lote(lote_id: str) -> dict:
                 _guardar_validacion(lote_id, "cronologia_operaciones", "Advertencia", "Media", "Amarillo", "Inconsistencia de fechas: Despacho registrado antes que la Tala.")
                 if color_final != "Rojo": color_final = "Amarillo"
                 mensajes.append("Inconsistencia cronológica.")
+
+    # ── Regla 5: Rendimiento en Planta (CTP) ──
+    if not ops_trans.empty:
+        volumen_ingreso = _safe_float(lote_row["volumen_total"])
+        volumen_salida = _safe_float(ops_trans["volumen"].sum())
+        res_ctp = validar_rendimiento_ctp(volumen_ingreso, volumen_salida)
+        _guardar_validacion(lote_id, "rendimiento_ctp", res_ctp["resultado"], res_ctp["severidad"], res_ctp["color_semaforo"], res_ctp["mensaje"])
+        if res_ctp["color_semaforo"] == "Rojo":
+            color_final = "Rojo"
+            mensajes.append(res_ctp["mensaje"])
+        elif res_ctp["color_semaforo"] == "Amarillo":
+            if color_final != "Rojo":
+                color_final = "Amarillo"
+            mensajes.append(res_ctp["mensaje"])
 
     mensaje_final_str = " | ".join(mensajes) if mensajes else "Lote válido con trazabilidad consistente."
     
