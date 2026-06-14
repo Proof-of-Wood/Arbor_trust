@@ -1,13 +1,3 @@
-"""
-ArborTrust - engine/validation.py
-===================================
-MÓDULO 3: Motor de Validación y Reporte de Fallas (Semáforo de Riesgo)
-
-Ejecuta reglas sobre los datos ingresados para asignar un estado
-al lote (Verde, Amarillo, Rojo). Usa Pandas para la lógica vectorial
-cuando sea posible o SQL para lecturas rápidas.
-"""
-
 import sys
 from pathlib import Path
 import pandas as pd
